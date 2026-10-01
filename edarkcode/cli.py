@@ -28,6 +28,17 @@ app.add_typer(memory_app, name="memory")
 console = Console()
 
 
+def _force_utf8_output() -> None:
+    """Windows consoles default to a legacy code page (cp1252/cp437), which cannot
+    encode the symbols rich prints. Reconfigure the streams to UTF-8 so the CLI
+    never dies with a UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def _load_settings(workspace: str | None, model: str | None, provider: str | None) -> Settings:
     settings = Settings.load()
     if workspace:
@@ -237,8 +248,10 @@ def doctor() -> None:
 
 
 def main() -> None:
+    _force_utf8_output()
     app()
 
 
 if __name__ == "__main__":
+    _force_utf8_output()
     main()

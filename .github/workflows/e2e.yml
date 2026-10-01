@@ -29,16 +29,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: "E2E suite (offline CLI and HTTP server, no API key)"
+      - name: E2E suite (offline CLI and HTTP server, no API key)
         run: pytest tests/test_e2e.py -v
-
-      - name: "Live agent E2E (only if a key is configured)"
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
-        env:
-          EDARKCODE_E2E_LLM: "1"
-          EDARKCODE_LLM__API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          EDARKCODE_LLM__MODEL: gpt-4o-mini
-        run: pytest tests/test_e2e.py::test_live_agent_creates_a_file -v
 
       - name: Upload server logs on failure
         if: failure()
@@ -48,3 +40,33 @@ jobs:
           path: |
             .edarkcode-e2e/
           if-no-files-found: ignore
+
+  live-agent:
+    name: Live agent E2E (needs a real API key)
+    runs-on: ubuntu-latest
+    # Secrets are not available in step-level `if` expressions, so gate at job level.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run the live agent against a real model
+        env:
+          EDARKCODE_E2E_LLM: "1"
+          EDARKCODE_LLM__API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EDARKCODE_LLM__MODEL: gpt-4o-mini
+        run: |
+          if [ -z "$EDARKCODE_LLM__API_KEY" ]; then
+            echo "OPENAI_API_KEY secret not set - skipping live agent E2E."
+            exit 0
+          fi
+          pytest tests/test_e2e.py::test_live_agent_creates_a_file -v
