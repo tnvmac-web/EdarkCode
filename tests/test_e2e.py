@@ -17,15 +17,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYTHON = sys.executable
 
 
-def run_cli(*args: str, cwd: Path | None = None, timeout: int = 120) -> subprocess.CompletedProcess:
+def run_cli(
+    *args: str,
+    cwd: Path | None = None,
+    timeout: int = 120,
+    encoding: str | None = None,
+) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env.pop("EDARKCODE_LLM__API_KEY", None)
     env["EDARKCODE_DATA_DIR"] = str(Path(cwd or REPO_ROOT) / ".edarkcode-e2e")
+    if encoding:
+        # Simulate a legacy Windows console (cp1252/cp437) as seen on CI runners.
+        env["PYTHONIOENCODING"] = encoding
+    else:
+        env.pop("PYTHONIOENCODING", None)
     return subprocess.run(
         [PYTHON, "-m", "edarkcode.cli", *args],
         cwd=str(cwd or REPO_ROOT),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         env=env,
     )
@@ -73,6 +85,24 @@ def test_cli_run_without_key_fails_cleanly(tmp_path):
     """No key -> the agent must report an error, not crash with a traceback."""
     (tmp_path / "x.txt").write_text("hi", encoding="utf-8")
     result = run_cli("run", "say hello", "--workspace", str(tmp_path), "--yes")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize("legacy", ["cp1252", "cp437"])
+def test_cli_survives_legacy_windows_code_page(legacy):
+    """Regression: rich prints unicode symbols that a legacy Windows console
+    cannot encode. The CLI must not die with a UnicodeEncodeError."""
+    result = run_cli("doctor", encoding=legacy)
+    assert result.returncode == 1  # no API key, but a clean report
+    assert "UnicodeEncodeError" not in result.stderr
+    assert "No API key" in result.stdout
+
+
+def test_cli_run_reports_error_under_legacy_code_page(tmp_path):
+    """Regression: the run command must degrade gracefully on a cp1252 console."""
+    result = run_cli("run", "say hello", "--workspace", str(tmp_path), "--yes", encoding="cp1252")
+    assert "UnicodeEncodeError" not in result.stderr, result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert result.returncode == 1
 
