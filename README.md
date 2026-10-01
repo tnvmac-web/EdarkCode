@@ -18,15 +18,19 @@ not built.
 | Area | State |
 |---|---|
 | Agent loop (plan → act → observe → repeat) | ✅ implemented |
-| Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `search`, `run_shell` | ✅ implemented, sandboxed |
+| Filesystem tools: `read_file`, `write_file`, `edit_file`, `multi_edit`, `list_dir`, `search`, `glob` | ✅ implemented, sandboxed |
+| Shell tool `run_shell` | ✅ implemented, sandboxed |
+| Web tools: `web_search`, `web_fetch` | ✅ implemented, works with no API key |
+| Planning: `todo` task list | ✅ implemented |
+| Skills system (SKILL.md discovery + on-demand loading) | ✅ implemented, 5 bundled |
 | Providers: OpenAI, Anthropic, OpenRouter, Groq, DeepSeek, Ollama | ✅ implemented |
 | Streaming terminal UI (rich) | ✅ implemented |
 | Web API + WebSocket streaming + browser UI | ✅ implemented |
 | Episodic memory (recall across sessions) | ✅ implemented (lexical) |
 | Self-improvement (lesson extraction) | ✅ implemented |
 | Tool approval / sandboxing | ✅ implemented |
-| Test suite | ✅ implemented (pytest) |
-| CI/CD (test, lint, build, publish, e2e) | ✅ implemented |
+| Test suite | ✅ 88 tests, passing |
+| CI/CD (test, lint, build, publish, e2e, CodeQL) | ✅ implemented, green on main |
 | Native desktop app | ❌ not built (web UI works in any browser) |
 | Embedding-based semantic memory | ❌ not built (lexical recall only) |
 | Multi-agent orchestration | ❌ not built |
@@ -92,8 +96,69 @@ edarkcode memory list
 edarkcode memory lessons
 ```
 
+Skills:
+
+```bash
+edarkcode skill list                 # installed skills
+edarkcode skill search "test fails"  # keyword search
+edarkcode skill show testing         # full instructions
+edarkcode skill init my-skill        # scaffold one in the workspace
+```
+
 Tool calls are approved interactively by default. `--yes` auto-approves;
 `edarkcode run "..." --no-show-output` hides tool output.
+
+## Skills
+
+A skill is a folder with a `SKILL.md` holding frontmatter and instructions:
+
+```markdown
+---
+name: deploy
+description: Use when deploying. Build, tag, push, verify the rollout.
+tags: [ops]
+---
+
+# Deploy
+...step by step instructions...
+```
+
+The agent sees only each skill's **name and description** in its system prompt,
+then loads the full body with the `skill` tool when it is actually relevant. That
+keeps the prompt small no matter how many skills you install.
+
+Skills are discovered from, in precedence order:
+
+1. `<workspace>/.edarkcode/skills/` — project-specific
+2. `~/.edarkcode/skills/` — your global skills
+3. the bundled skills shipped in the package
+
+Five skills ship built in: `systematic-debugging`, `testing`, `code-review`,
+`web-research`, `git-workflow`. Copy one as a starting point:
+
+```bash
+edarkcode skill show systematic-debugging
+```
+
+## Tools
+
+| Tool | Purpose |
+|---|---|
+| `read_file` | Read a file, optionally a line range |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Replace one exact string (must be unique) |
+| `multi_edit` | Several exact-string edits, applied atomically |
+| `list_dir` | List a directory tree |
+| `glob` | Find files by pattern, e.g. `**/*.py` |
+| `search` | Regex search file contents, or find files |
+| `run_shell` | Run a command in the workspace |
+| `web_search` | Search the web (DuckDuckGo by default, no key needed) |
+| `web_fetch` | Fetch a URL and convert HTML to readable text |
+| `todo` | Maintain a visible task list for multi-step work |
+| `skill` | Load or search skills |
+
+`web_search` uses DuckDuckGo with no setup. Set `BRAVE_API_KEY` or
+`TAVILY_API_KEY` for cleaner results; they are used automatically when present.
 
 ## Safety
 
@@ -116,7 +181,13 @@ edarkcode/
     types.py      # Message, ToolResult, StreamEvent, ...
   tools/
     files.py      # sandboxed filesystem tools
+    planning.py   # glob, multi_edit, todo
     shell.py      # sandboxed shell tool
+    web.py        # web_search, web_fetch
+    skill_tool.py # the `skill` tool
+  skills/
+    loader.py     # SKILL.md discovery, catalog, search
+    builtin/      # five bundled skills
   memory/
     store.py      # JSONL-backed MemoryStore + LessonStore
   self_improvement/

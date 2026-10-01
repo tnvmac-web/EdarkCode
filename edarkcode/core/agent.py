@@ -8,7 +8,7 @@ from typing import Any
 
 from .config import Settings
 from .llm import LLMClient, LLMError
-from .prompts import PLANNER_PROMPT, REFLECTOR_PROMPT, SYSTEM_PROMPT, build_context
+from .prompts import PLANNER_PROMPT, REFLECTOR_PROMPT, SYSTEM_PROMPT, build_context, build_skills_block
 from .types import (
     AgentPhase,
     AgentState,
@@ -33,6 +33,7 @@ class Agent:
         approver: ToolApprover | None = None,
         memory: Any = None,
         lessons: Any = None,
+        skills: Any = None,
     ) -> None:
         self.settings = settings
         self.registry = registry
@@ -40,6 +41,7 @@ class Agent:
         self.approver = approver
         self.memory = memory
         self.lessons = lessons
+        self.skills = skills
         self.state = AgentState()
         self.messages: list[Message] = []
 
@@ -50,9 +52,11 @@ class Agent:
     def _system(self) -> str:
         if self.settings.agent.system_prompt:
             return self.settings.agent.system_prompt
+        catalog = self.skills.catalog() if self.skills else ""
         return SYSTEM_PROMPT.format(
             workspace=str(self.settings.workspace),
             tools=", ".join(self.registry.names()),
+            skills_block=build_skills_block(catalog),
         )
 
     def _account(self, usage: dict[str, int]) -> None:

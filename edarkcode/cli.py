@@ -22,8 +22,10 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Manage configuration.", no_args_is_help=True)
 memory_app = typer.Typer(help="Inspect memory and lessons.", no_args_is_help=True)
+skill_app = typer.Typer(help="List, show and search skills.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 app.add_typer(memory_app, name="memory")
+app.add_typer(skill_app, name="skill")
 
 console = Console()
 
@@ -221,6 +223,85 @@ def memory_lessons() -> None:
     for e in entries:
         tags = f" [dim]({', '.join(e.tags)})[/dim]" if e.tags else ""
         console.print(f"• {e.text}{tags}")
+
+
+@skill_app.command("list")
+def skill_list(workspace: str | None = typer.Option(None, "--workspace", "-w")) -> None:
+    """List installed skills."""
+    from .core.factory import build_skills
+
+    settings = Settings.load()
+    if workspace:
+        settings.workspace = Path(workspace).resolve()
+    skills = build_skills(settings)
+    if not len(skills):
+        console.print("[dim]No skills installed.[/dim]")
+        return
+    for skill in skills.all():
+        tags = f" [dim]({', '.join(skill.tags)})[/dim]" if skill.tags else ""
+        console.print(f"[bold cyan]{skill.name}[/bold cyan]{tags}")
+        console.print(f"  [dim]{skill.description}[/dim]")
+
+
+@skill_app.command("show")
+def skill_show(
+    name: str = typer.Argument(..., help="Skill name."),
+    workspace: str | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Print a skill's full instructions."""
+    from .core.factory import build_skills
+
+    settings = Settings.load()
+    if workspace:
+        settings.workspace = Path(workspace).resolve()
+    skill = build_skills(settings).get(name)
+    if skill is None:
+        console.print(f"[red]No such skill: {name}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[bold]{skill.name}[/bold] — [dim]{skill.path}[/dim]")
+    console.print()
+    console.print(skill.body)
+
+
+@skill_app.command("search")
+def skill_search(
+    query: str = typer.Argument(..., help="Search terms."),
+    workspace: str | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Search skills by keyword."""
+    from .core.factory import build_skills
+
+    settings = Settings.load()
+    if workspace:
+        settings.workspace = Path(workspace).resolve()
+    hits = build_skills(settings).search(query)
+    if not hits:
+        console.print(f"[dim]No skills matched '{query}'.[/dim]")
+        return
+    for skill in hits:
+        console.print(f"[bold cyan]{skill.name}[/bold cyan] [dim]{skill.description}[/dim]")
+
+
+@skill_app.command("init")
+def skill_init(
+    name: str = typer.Argument(..., help="Skill name to create."),
+    workspace: str | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Scaffold a new skill in the workspace."""
+    settings = Settings.load()
+    if workspace:
+        settings.workspace = Path(workspace).resolve()
+    target = Path(settings.workspace) / ".edarkcode" / "skills" / name / "SKILL.md"
+    if target.exists():
+        console.print(f"[red]Already exists: {target}[/red]")
+        raise typer.Exit(1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        f"---\nname: {name}\ndescription: Use when <trigger>. <what it does>.\ntags: []\n---\n\n"
+        f"# {name}\n\nWrite the instructions here.\n",
+        encoding="utf-8",
+    )
+    console.print(f"Created {target}")
 
 
 @app.command()

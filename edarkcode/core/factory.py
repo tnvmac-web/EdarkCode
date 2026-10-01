@@ -8,26 +8,55 @@ from .config import Settings
 from .llm import LLMClient
 
 
-def build_registry(workspace: Path):
+def build_registry(workspace: Path, skills=None):
     """Create a ToolRegistry with all built-in tools bound to a workspace."""
+    from ..skills.loader import SkillRegistry, default_roots
     from ..tools.base import ToolRegistry
     from ..tools.files import EditFileTool, ListDirTool, ReadFileTool, SearchTool, WriteFileTool
+    from ..tools.planning import GlobTool, MultiEditTool, TodoTool
     from ..tools.shell import ShellTool
+    from ..tools.skill_tool import SkillTool
+    from ..tools.web import WebFetchTool, WebSearchTool
+
+    if skills is None:
+        skills = SkillRegistry(default_roots(Path(workspace), Settings().data_dir))
 
     registry = ToolRegistry()
     ws = str(workspace)
-    for tool_cls in (ListDirTool, ReadFileTool, WriteFileTool, EditFileTool, SearchTool, ShellTool):
+    for tool_cls in (
+        ListDirTool,
+        ReadFileTool,
+        WriteFileTool,
+        EditFileTool,
+        MultiEditTool,
+        SearchTool,
+        GlobTool,
+        ShellTool,
+        WebFetchTool,
+        WebSearchTool,
+        TodoTool,
+    ):
         registry.register(tool_cls(workspace=ws))
+    registry.register(SkillTool(workspace=ws, registry=skills))
     return registry
+
+
+def build_skills(settings: Settings):
+    from ..skills.loader import SkillRegistry, default_roots
+
+    return SkillRegistry(default_roots(Path(settings.workspace), settings.data_dir))
 
 
 def build_agent(
     settings: Settings,
     approver: ToolApprover | None = None,
     with_memory: bool = True,
+    skills=None,
 ) -> Agent:
-    """Wire up an Agent with tools, memory and lessons per settings."""
-    registry = build_registry(settings.workspace)
+    """Wire up an Agent with tools, skills, memory and lessons per settings."""
+    if skills is None:
+        skills = build_skills(settings)
+    registry = build_registry(settings.workspace, skills=skills)
 
     memory = None
     lessons = None
@@ -53,4 +82,5 @@ def build_agent(
         approver=approver,
         memory=memory,
         lessons=lessons,
+        skills=skills,
     )

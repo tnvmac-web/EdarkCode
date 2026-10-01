@@ -21,6 +21,10 @@ Operating rules:
 6. When the task is finished, reply with a concise summary: what changed, what
    you verified, and anything left undone.
 
+For multi-step work, use the `todo` tool to keep a visible task list and update
+it as you go. Use `web_search` and `web_fetch` when you need information that is
+not in the workspace.
+{skills_block}
 Workspace root: {workspace}
 Available tools: {tools}
 """
@@ -58,6 +62,13 @@ Workspace: {workspace}
 Available tools: {tools}
 {memory_block}{lesson_block}
 Begin by investigating the workspace if that is relevant, then proceed."""
+
+
+def build_skills_block(catalog: str) -> str:
+    """Render the skills section of the system prompt."""
+    if not catalog.strip():
+        return "\nNo skills are installed. You can still work directly with tools.\n"
+    return f"\nAvailable skills (load one with the `skill` tool when relevant):\n{catalog}\n"
 
 
 def build_context(
