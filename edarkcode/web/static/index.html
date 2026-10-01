@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>edarkcode</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --dim:#8b949e;
+          --accent:#58a6ff; --green:#3fb950; --red:#f85149; --yellow:#d29922; --purple:#bc8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:14px; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px;
+           border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:10; }
+  header h1 { font-size:16px; margin:0; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--red); }
+  .dot.on { background:var(--green); }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  #log { display:flex; flex-direction:column; gap:8px; min-height:200px; }
+  .ev { padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--panel);
+        white-space:pre-wrap; word-break:break-word; }
+  .ev.phase { color:var(--purple); border-color:transparent; background:transparent; padding:4px 0; }
+  .ev.plan { border-color:var(--accent); }
+  .ev.tool_call { color:var(--yellow); }
+  .ev.tool_result.ok { color:var(--green); }
+  .ev.tool_result.err { color:var(--red); }
+  .ev.error { border-color:var(--red); color:var(--red); }
+  .ev.complete { border-color:var(--green); }
+  .ev pre { margin:6px 0 0; padding:8px; background:#0b0f14; border-radius:4px;
+            overflow-x:auto; font-size:12px; color:var(--dim); }
+  footer { position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--border); padding:12px 16px; }
+  .row { max-width:1000px; margin:0 auto; display:flex; gap:8px; }
+  textarea { flex:1; background:var(--bg); color:var(--fg); border:1px solid var(--border);
+             border-radius:6px; padding:10px; resize:vertical; min-height:44px; font-family:inherit; }
+  button { background:var(--accent); color:#0d1117; border:0; border-radius:6px; padding:0 20px;
+           font-weight:600; cursor:pointer; font-family:inherit; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .meta { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>edarkcode</h1>
+  <span class="meta" id="status">connecting…</span>
+</header>
+<main><div id="log"></div></main>
+<footer>
+  <div class="row">
+    <textarea id="goal" placeholder="Describe a goal… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button id="send">Run</button>
+  </div>
+</footer>
+<script>
+const log = document.getElementById('log');
+const dot = document.getElementById('dot');
+const status = document.getElementById('status');
+const goalEl = document.getElementById('goal');
+const sendBtn = document.getElementById('send');
+let ws = null, running = false;
+
+function el(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'ev ' + cls;
+  if (text !== undefined) d.textContent = text;
+  return d;
+}
+function add(cls, text, pre) {
+  const d = el(cls, text);
+  if (pre) { const p = document.createElement('pre'); p.textContent = pre; d.appendChild(p); }
+  log.appendChild(d);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  return d;
+}
+function setRunning(v) {
+  running = v;
+  sendBtn.disabled = v;
+  sendBtn.textContent = v ? 'Running…' : 'Run';
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { dot.classList.add('on'); status.textContent = 'connected'; };
+  ws.onclose = () => { dot.classList.remove('on'); status.textContent = 'disconnected — retrying…';
+                       setRunning(false); setTimeout(connect, 2000); };
+  ws.onerror = () => { status.textContent = 'connection error'; };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+}
+
+function handle(ev) {
+  const d = ev.data || {};
+  switch (ev.type) {
+    case 'phase': add('phase', '◆ ' + (d.label || d.phase)); break;
+    case 'plan':
+      add('plan', 'Plan:', (d.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')); break;
+    case 'message': add(d.final ? 'complete' : '', d.content); break;
+    case 'tool_call': add('tool_call', '→ ' + d.name + '(' + JSON.stringify(d.arguments) + ')'); break;
+    case 'tool_result':
+      add('tool_result ' + (d.status === 'success' ? 'ok' : 'err'),
+          (d.status === 'success' ? '✓ ' : '✗ ') + d.name + ' (' + d.duration_ms + ' ms)',
+          d.error || (d.output || '').slice(0, 4000)); break;
+    case 'error': add('error', d.message || 'error'); setRunning(false); break;
+    case 'complete':
+      add('complete', `done — iterations=${d.iterations} tools=${d.tool_calls} tokens=${d.prompt_tokens}+${d.completion_tokens}`);
+      setRunning(false); break;
+    case 'approval_request':
+      if (confirm(`Approve tool "${d.name}"?\n\n${JSON.stringify(d.arguments, null, 2)}`))
+        ws.send(JSON.stringify({ type: 'approval', call_id: d.call_id, approved: true }));
+      else ws.send(JSON.stringify({ type: 'approval', call_id: d.call_id, approved: false }));
+      break;
+  }
+}
+
+function send() {
+  const goal = goalEl.value.trim();
+  if (!goal || running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  add('phase', '▸ goal: ' + goal);
+  ws.send(JSON.stringify({ type: 'run', goal, auto_approve: true }));
+  goalEl.value = '';
+  setRunning(true);
+}
+
+sendBtn.onclick = send;
+goalEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+fetch('/api/health').then(r => r.json()).then(h => {
+  status.textContent = `${h.provider}/${h.model}` + (h.api_key_configured ? '' : ' — no API key set');
+}).catch(() => {});
+connect();
+</script>
+</body>
+</html>
